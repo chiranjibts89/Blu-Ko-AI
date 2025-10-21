@@ -2,22 +2,56 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
-  Download,
   Plus,
-  Eye,
-  Trash2,
-  Share2,
-  Edit,
   FileText,
   Bot,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { NavigationHeader } from "../components/shared/NavigationHeader";
+import ResumeCard from "../components/resume/ResumeCard";
+import ResumePreview from "../components/resume/ResumePreview";
+import { downloadAsHTML, downloadAsPDF } from "../utils/resumeDownload";
+import { Notification } from "../components/shared/Notification";
+
+interface PersonalInfo {
+  name: string;
+  email: string;
+  phone?: string;
+  location?: string;
+}
+
+interface WorkExperience {
+  jobTitle: string;
+  companyName: string;
+  location?: string;
+  startDate: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  description?: string;
+}
+
+interface Education {
+  institutionName: string;
+  degreeOrProgram: string;
+  fieldOfStudy?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+}
 
 interface Resume {
   id: string;
+  title: string;
   resume_name: string;
   template_name: string;
+  personal_info: PersonalInfo;
+  work_experience: WorkExperience[];
+  skills: string[];
+  education: Education[];
+  status: string;
+  file_size: string;
+  share_token: string;
+  is_public: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -28,10 +62,12 @@ export function ResumePage() {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [selectedResume, setSelectedResume] = useState<string | null>(null);
-  const [showDownloadModal, setShowDownloadModal] = useState<string | null>(
-    null
-  );
+  const [selectedResume, setSelectedResume] = useState<Resume | null>(null);
+  const [showDownloadModal, setShowDownloadModal] = useState<Resume | null>(null);
+  const [notification, setNotification] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   useEffect(() => {
     loadResumes();
@@ -42,12 +78,14 @@ export function ResumePage() {
 
     const { data, error } = await supabase
       .from("resumes")
-      .select("id, resume_name, template_name, created_at, updated_at")
+      .select("*")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (!error && data) {
       setResumes(data);
+    } else if (error) {
+      setNotification({ message: "Failed to load resumes", type: "error" });
     }
     setLoading(false);
   };
@@ -118,219 +156,52 @@ export function ResumePage() {
     setGenerating(false);
   };
 
-  const viewResume = async (resumeId: string) => {
-    setSelectedResume(resumeId);
+  const viewResume = (resume: Resume) => {
+    setSelectedResume(resume);
   };
 
   const deleteResume = async (resumeId: string) => {
-    await supabase.from("resumes").delete().eq("id", resumeId);
-    setResumes(resumes.filter((r) => r.id !== resumeId));
+    const { error } = await supabase.from("resumes").delete().eq("id", resumeId);
+    if (!error) {
+      setResumes(resumes.filter((r) => r.id !== resumeId));
+      setNotification({ message: "Resume deleted successfully", type: "success" });
+    } else {
+      setNotification({ message: "Failed to delete resume", type: "error" });
+    }
   };
 
-  const shareResume = async (resumeId: string) => {
-    const shareUrl = `${window.location.origin}/resume/${resumeId}`;
-    await navigator.clipboard.writeText(shareUrl);
-    alert("Resume link copied to clipboard!");
-  };
-
-  const downloadResume = async (resumeId: string, format: "html" | "pdf") => {
-    setShowDownloadModal(null);
-    const { data } = await supabase
+  const shareResume = async (resume: Resume) => {
+    const { error } = await supabase
       .from("resumes")
-      .select("resume_data, resume_name")
-      .eq("id", resumeId)
-      .maybeSingle();
+      .update({ is_public: true })
+      .eq("id", resume.id);
 
-    if (data) {
-      const htmlContent = generateHTMLResume(data.resume_data);
-      const blob = new Blob([htmlContent], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${data.resume_name}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+    if (!error) {
+      const shareUrl = `${window.location.origin}/shared-resume/${resume.share_token}`;
+      await navigator.clipboard.writeText(shareUrl);
+      setNotification({ message: "Share link copied to clipboard!", type: "success" });
+      loadResumes();
+    } else {
+      setNotification({ message: "Failed to generate share link", type: "error" });
     }
   };
 
-  const getFileSize = (resume: Resume) => {
-    return "45 KB";
-  };
-
-  const generateHTMLResume = (resumeData: any) => {
-    const profile = resumeData.profile || {};
-    const workExperiences = resumeData.workExperiences || [];
-    const skills = resumeData.skills || [];
-    const certifications = resumeData.certifications || [];
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      line-height: 1.6;
-      color: #333;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px;
-      background: #fff;
-    }
-    h1 {
-      color: #012A61;
-      margin-bottom: 5px;
-      font-size: 32px;
-    }
-    h2 {
-      color: #275A91;
-      border-bottom: 2px solid #FDC787;
-      padding-bottom: 5px;
-      margin-top: 30px;
-      margin-bottom: 15px;
-    }
-    .contact {
-      color: #666;
-      margin-bottom: 20px;
-    }
-    .section {
-      margin-bottom: 25px;
-    }
-    .job, .cert, .skill-item {
-      margin-bottom: 15px;
-    }
-    .job-title {
-      font-weight: bold;
-      color: #012A61;
-      font-size: 18px;
-    }
-    .company {
-      color: #275A91;
-      font-size: 16px;
-    }
-    .date {
-      color: #666;
-      font-style: italic;
-      font-size: 14px;
-    }
-    .skills-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-    }
-    .skill-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 8px;
-      background: #f5f5f5;
-      border-radius: 4px;
-    }
-  </style>
-</head>
-<body>
-  <h1>${profile.full_name || "Your Name"}</h1>
-  <div class="contact">
-    ${profile.email || ""} ${profile.phone ? "| " + profile.phone : ""} ${
-      profile.location ? "| " + profile.location : ""
-    }
-  </div>
-
-  ${
-    profile.professional_summary
-      ? `
-  <div class="section">
-    <h2>Professional Summary</h2>
-    <p>${profile.professional_summary}</p>
-  </div>
-  `
-      : ""
-  }
-
-  ${
-    workExperiences.length > 0
-      ? `
-  <div class="section">
-    <h2>Work Experience</h2>
-    ${workExperiences
-      .map(
-        (exp: any) => `
-    <div class="job">
-      <div class="job-title">${exp.job_title}</div>
-      <div class="company">${exp.company_name}${
-          exp.location ? " - " + exp.location : ""
-        }</div>
-      <div class="date">${new Date(exp.start_date).toLocaleDateString()} - ${
-          exp.is_current
-            ? "Present"
-            : exp.end_date
-            ? new Date(exp.end_date).toLocaleDateString()
-            : "N/A"
-        }</div>
-      ${exp.description ? `<p>${exp.description}</p>` : ""}
-    </div>
-    `
-      )
-      .join("")}
-  </div>
-  `
-      : ""
-  }
-
-  ${
-    skills.length > 0
-      ? `
-  <div class="section">
-    <h2>Skills</h2>
-    <div class="skills-grid">
-      ${skills
-        .map(
-          (skill: any) => `
-      <div class="skill-item">
-        <span>${skill.skill_name}</span>
-        <span>${skill.proficiency_level}</span>
-      </div>
-      `
-        )
-        .join("")}
-    </div>
-  </div>
-  `
-      : ""
-  }
-
-  ${
-    certifications.length > 0
-      ? `
-  <div class="section">
-    <h2>Certifications & Licenses</h2>
-    ${certifications
-      .map(
-        (cert: any) => `
-    <div class="cert">
-      <div style="font-weight: bold;">${cert.certification_name}</div>
-      <div>${cert.issuing_organization}</div>
-      ${
-        cert.issue_date
-          ? `<div class="date">Issued: ${new Date(
-              cert.issue_date
-            ).toLocaleDateString()}</div>`
-          : ""
+  const downloadResume = async (resume: Resume, format: "html" | "pdf") => {
+    try {
+      if (format === "html") {
+        downloadAsHTML(resume);
+        setNotification({ message: "Resume downloaded as HTML", type: "success" });
+      } else {
+        await downloadAsPDF(resume);
+        setNotification({ message: "Resume downloaded as PDF", type: "success" });
       }
-    </div>
-    `
-      )
-      .join("")}
-  </div>
-  `
-      : ""
-  }
-</body>
-</html>
-    `;
+    } catch (error) {
+      setNotification({ message: "Failed to download resume", type: "error" });
+    }
+    setShowDownloadModal(null);
   };
+
+
 
   if (loading) {
     return (
@@ -390,70 +261,18 @@ export function ResumePage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {resumes.map((resume) => (
-                <div
+                <ResumeCard
                   key={resume.id}
-                  className="bg-[#003A6E] bg-opacity-50 backdrop-blur-lg border border-[#6A7B93] border-opacity-20 rounded-2xl p-6 hover:bg-opacity-70 transition-all duration-300 group"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-white mb-1">
-                        {resume.resume_name}
-                      </h3>
-                      <p className="text-[#6A7B93] text-xs">
-                        Created:{" "}
-                        {new Date(resume.created_at).toLocaleDateString()}
-                      </p>
-                      <p className="text-[#6A7B93] text-xs mt-1">
-                        Size: {getFileSize(resume)}
-                      </p>
-                    </div>
-                    <div className="bg-[#1E4C80] w-12 h-12 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
-                      <FileText className="text-[#FBC888]" size={24} />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="px-3 py-1 bg-green-500 bg-opacity-20 text-green-400 text-xs rounded-full border border-green-500 border-opacity-30">
-                      Complete
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    <button
-                      onClick={() => navigate("/chatbot")}
-                      className="col-span-2 flex items-center justify-center gap-2 bg-[#FBC888] hover:bg-[#FBC888]/90 text-[#002B5C] font-semibold px-3 py-2 rounded-lg transition-all duration-200 text-sm"
-                    >
-                      <Bot size={14} />
-                      <span>Edit with AI</span>
-                    </button>
-                    <button
-                      onClick={() => viewResume(resume.id)}
-                      className="flex items-center justify-center gap-2 bg-[#1E4C80] hover:bg-[#2A4F7A] text-white px-3 py-2 rounded-lg transition-all duration-200 text-sm"
-                    >
-                      <Eye size={14} />
-                      <span>View</span>
-                    </button>
-                    <button
-                      onClick={() => setShowDownloadModal(resume.id)}
-                      className="flex items-center justify-center gap-2 bg-[#FBC888] hover:bg-[#FBC888]/90 text-[#002B5C] font-semibold px-3 py-2 rounded-lg transition-all duration-200 text-sm"
-                    >
-                      <Download size={14} />
-                      <span>Download</span>
-                    </button>
-                    <button
-                      onClick={() => shareResume(resume.id)}
-                      className="flex items-center justify-center gap-2 bg-[#6A7B93] bg-opacity-20 hover:bg-opacity-30 text-white px-3 py-2 rounded-lg transition-all duration-200 text-sm"
-                    >
-                      <Share2 size={14} />
-                      <span>Share</span>
-                    </button>
-                    <button
-                      onClick={() => deleteResume(resume.id)}
-                      className="flex items-center justify-center gap-2 bg-red-500 bg-opacity-20 hover:bg-opacity-30 text-red-400 px-3 py-2 rounded-lg transition-all duration-200 text-sm"
-                    >
-                      <Trash2 size={14} />
-                      <span>Delete</span>
-                    </button>
-                  </div>
-                </div>
+                  id={resume.id}
+                  title={resume.title || resume.resume_name}
+                  createdAt={resume.created_at}
+                  fileSize={resume.file_size}
+                  status={resume.status}
+                  onView={() => viewResume(resume)}
+                  onDownload={() => setShowDownloadModal(resume)}
+                  onShare={() => shareResume(resume)}
+                  onDelete={() => deleteResume(resume.id)}
+                />
               ))}
             </div>
           )}
@@ -481,7 +300,6 @@ export function ResumePage() {
                     </div>
                   </div>
                 </div>
-                <Download size={20} />
               </button>
               <button
                 onClick={() => downloadResume(showDownloadModal, "pdf")}
@@ -494,7 +312,6 @@ export function ResumePage() {
                     <div className="text-xs opacity-70">Print-ready format</div>
                   </div>
                 </div>
-                <Download size={20} />
               </button>
             </div>
             <button
@@ -505,6 +322,22 @@ export function ResumePage() {
             </button>
           </div>
         </div>
+      )}
+
+      {selectedResume && (
+        <ResumePreview
+          resume={selectedResume}
+          onClose={() => setSelectedResume(null)}
+          isModal={true}
+        />
+      )}
+
+      {notification && (
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={() => setNotification(null)}
+        />
       )}
     </div>
   );

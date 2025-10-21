@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { ProfilePage } from "./pages/ProfilePage";
 import { ChatbotPage } from "./pages/ChatbotPage";
 import { ResumePage } from "./pages/ResumePage";
+import { SharedResumePage } from "./pages/SharedResumePage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -62,6 +63,7 @@ function App() {
               </PrivateRoute>
             }
           />
+          <Route path="/shared-resume/:shareToken" element={<SharedResumePage />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
